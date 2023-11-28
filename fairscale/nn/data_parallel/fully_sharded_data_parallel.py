@@ -356,7 +356,7 @@ class FullyShardedDataParallel(nn.Module):
         buffer_dtype: Optional[torch.dtype] = None,
         move_grads_to_cpu: Optional[bool] = None,
         bucket_cap_mb: int = 25,
-        compute_device: Optional[torch.device] = None,
+        compute_device: Optional[torch.device] = torch.device('cpu'),
         no_broadcast_optim_state: Optional[bool] = False,
         state_dict_device: Optional[torch.device] = None,
         clear_autocast_cache: bool = False,
@@ -451,8 +451,8 @@ class FullyShardedDataParallel(nn.Module):
             raise ValueError(f"offload type: '{offload_config.offload_type}' requires flatten_parameters=True")
 
         # skip validation if the process group was created above
-        if process_group:
-            validate_process_group(self.compute_device, self.process_group)
+        # if process_group:    # wenyin fakescale PG
+        #     validate_process_group(self.compute_device, self.process_group)
 
         # enable pytorch sync_bn just in case model contains sync_bn layers.
         enable_pytorch_sync_bn(module)
@@ -949,8 +949,8 @@ class FullyShardedDataParallel(nn.Module):
         .. warning:: This needs to be called on all ranks, since synchronization
             primitives will be used.
         """
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
+        # if torch.cuda.is_available():    # wenyin fakescale PG
+        #     torch.cuda.synchronize()
         is_uninitialized = self._is_root is None  # See comment below on why we use this.
         self._lazy_init()
 
@@ -1043,7 +1043,7 @@ class FullyShardedDataParallel(nn.Module):
             with self.summon_full_params():
                 return self.module.load_state_dict(state_dict, strict)
         else:
-            torch.cuda.synchronize()
+            # torch.cuda.synchronize()    # wenyin fakescale PG
             self._lazy_init()
             return self.module.load_state_dict(state_dict, strict)
 
@@ -1144,7 +1144,7 @@ class FullyShardedDataParallel(nn.Module):
             # Exiting from the ExitStack will re-shard params.
             return
         else:
-            torch.cuda.synchronize()
+            # torch.cuda.synchronize()    # wenyin fakescale PG
             self._lazy_init()
             self.assert_state(TrainingState.IDLE)
             # Set the state so that we assert when trying to go into
@@ -1378,13 +1378,14 @@ class FullyShardedDataParallel(nn.Module):
         if len(self._streams) > 0 or not self._is_root:
             return
 
-        if torch.cuda.is_available():
-            # Stream to move main FP32 params (may be on CPU) to FP16 for forward.
-            self._streams["fp32_to_fp16"] = torch.cuda.Stream()
-            # Stream for all-gathering parameters.
-            self._streams["all_gather"] = torch.cuda.Stream()
-            # Stream for overlapping grad reduction with the backward pass.
-            self._streams["post_backward"] = torch.cuda.Stream()
+        # wenyin fakescale PG
+        # if torch.cuda.is_available():
+        #     # Stream to move main FP32 params (may be on CPU) to FP16 for forward.
+        #     self._streams["fp32_to_fp16"] = torch.cuda.Stream()
+        #     # Stream for all-gathering parameters.
+        #     self._streams["all_gather"] = torch.cuda.Stream()
+        #     # Stream for overlapping grad reduction with the backward pass.
+        #     self._streams["post_backward"] = torch.cuda.Stream()
 
         # Helper for bucketing reduce-scatter ops. This is also shared with
         # children instances to improve bucket utilization.
@@ -1413,6 +1414,7 @@ class FullyShardedDataParallel(nn.Module):
         instance) needs to synchronize with the default stream to ensure the
         previous optimizer step is done.
         """
+        return    # wenyin fakescale PG
         if not torch.cuda.is_available():
             return
         if self.mixed_precision or self.move_params_to_cpu:
